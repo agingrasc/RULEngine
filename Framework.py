@@ -19,15 +19,14 @@ from .Communication.referee import RefereeServer
 from .Communication.udp_server import GrSimCommandSender, DebugCommandSender,\
                                       DebugCommandReceiver
 from .Communication.serial_command_sender import SerialCommandSender
-from .Command.command import Stop, PI
+from .Command.command import Stop
+from .Command.pid import PID
 from .Util.exception import StopPlayerError
 from .Util.constant import TeamColor
 
 LOCAL_UDP_MULTICAST_ADDRESS = "224.5.23.2"
 UI_DEBUG_MULTICAST_ADDRESS = "127.0.0.1"
-CMD_TIME_DELTA = 0.030
-
-CMD_DELTA_TIME = 0.030
+AI_DELTA_TIME = 0.180
 
 GameState = namedtuple('GameState', ['field', 'referee', 'friends',
                                      'enemies', 'timestamp', 'debug'])
@@ -51,11 +50,10 @@ class Framework(object):
         self.running_thread = False
         self.last_frame_number = 0
         self.thread_terminate = threading.Event()
-        self.times = 0
-        self.last_time = 0
+        self.timestamp = 0
         self.vision = None
-        self.last_cmd_time = time.time()
-        self.robots_pi = [PI(), PI(), PI(), PI(), PI(), PI()]
+        self.last_ai_iteration_timestamp = 0
+        self.robots_pi = [PID(), PID(), PID(), PID(), PID(), PID()]
 
         self.ia_coach_mainloop = None
         # callable pour mettre la couleur de l'équipe dans l'IA lors de la création de la partie (create_game)
@@ -96,8 +94,8 @@ class Framework(object):
     def _compute_vision_time_delta(self, vision_frame):
         self.last_frame_number = vision_frame.detection.frame_number
         this_time = vision_frame.detection.t_capture
-        time_delta = this_time - self.last_time
-        self.last_time = this_time
+        time_delta = this_time - self.timestamp
+        self.timestamp = this_time
         # FIXME: hack
         # print("frame: %i, time: %d, delta: %f, FPS: %d" % \
         #        (vision_frame.detection.frame_number, this_time, time_delta, 1/time_delta))
@@ -128,7 +126,7 @@ class Framework(object):
             referee=game.referee,
             friends=game.friends,
             enemies=game.enemies,
-            timestamp=self.last_time,
+            timestamp=self.timestamp,
             debug=self.debug_receiver.receive_command()
         )
 
@@ -174,11 +172,12 @@ class Framework(object):
             if self._is_frame_number_different(current_vision_frame):
                 self.update_game_state()
                 self.update_players_and_ball(current_vision_frame)
-                robot_commands, debug_commands = self.update_strategies()
 
-                # Communication
-                self._send_robot_commands(robot_commands)
-                self._send_debug_commands(debug_commands)
+                if self.timestamp - self.last_ai_iteration_timestamp > AI_DELTA_TIME:
+
+                    robot_commands, debug_commands = self.update_strategies()
+                    self._send_robot_commands(robot_commands)
+                    self._send_debug_commands(debug_commands)
 
     def _acquire_vision_frame(self):
         return self.vision.get_latest_frame()
@@ -211,14 +210,10 @@ class Framework(object):
 
     def _send_robot_commands(self, commands):
         """ Envoi les commades des robots au serveur. """
-        cmd_time = time.time()
-        if cmd_time - self.last_cmd_time > CMD_DELTA_TIME:
-            self.last_cmd_time = cmd_time
-
-            for idx, command in enumerate(commands):
-                pi_cmd = self.robots_pi[idx].update_pid_and_return_speed_command(command)
-                command.pose = pi_cmd
-                self.command_sender.send_command(command)
+        for idx, command in enumerate(commands):
+            pi_cmd = self.robots_pi[idx].update_pid_and_return_speed_command(command)
+            command.pose = pi_cmd
+            self.command_sender.send_command(command)
 
     def _send_debug_commands(self, debug_commands):
         """ Envoie les commandes de debug au serveur. """

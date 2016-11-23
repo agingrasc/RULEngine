@@ -7,29 +7,9 @@
     L'embarqué et le simulateur utilise un vecteur de vitesse (Pose) pour
     contrôler les robots.
 """
-import math
-
 from ..Util.Pose import Pose, Position
 from ..Game.Player import Player
-from ..Game.Team import Team
 from ..Util.area import *
-
-DEFAULT_STATIC_GAIN = 0.00095
-DEFAULT_INTEGRAL_GAIN = 0.0009
-DEFAULT_THETA_GAIN = 0.01
-MAX_INTEGRAL_PART = 45000
-MAX_NAIVE_CMD = math.sqrt(2)/3
-MIN_NAIVE_CMD = -math.sqrt(2)/3
-MAX_THETA_CMD = math.pi/8
-MIN_THETA_CMD = -math.pi/8
-
-def _correct_for_referential_frame(x, y, orientation):
-    cos = math.cos(-orientation)
-    sin = math.sin(-orientation)
-
-    corrected_x = (x * cos - y * sin)
-    corrected_y = (y * cos + x * sin)
-    return corrected_x, corrected_y
 
 class _Command(object):
     def __init__(self, player):
@@ -109,59 +89,3 @@ class Stop(_Command):
         self.pose = Pose()
         self.stop_cmd = True
 
-class PI(object):
-    """
-        Asservissement PI en position
-
-        u = up + ui
-    """
-
-    def __init__(self, static_gain=DEFAULT_STATIC_GAIN, integral_gain=DEFAULT_INTEGRAL_GAIN, theta_gain=DEFAULT_THETA_GAIN):
-        self.accumulator_x = 0
-        self.accumulator_y = 0
-        self.kp = static_gain
-        self.ki = integral_gain
-        self.ktheta = theta_gain
-        self.last_command_x = 0
-        self.last_command_y = 0
-
-    def update_pid_and_return_speed_command(self, position_command):
-        """ Met à jour les composants du pid et retourne une commande en vitesse. """
-        r_x, r_y = position_command.pose.position.x, position_command.pose.position.y
-        t_x, t_y = position_command.player.pose.position.x, position_command.player.pose.position.y
-        e_x = r_x - t_x
-        e_y = r_y - t_y
-
-        # composante proportionnel
-        up_x = self.kp * e_x
-        up_y = self.kp * e_y
-
-        # composante integrale
-        ui_x = self.ki * e_x
-        ui_y = self.ki * e_y
-        self.accumulator_x = self.accumulator_x + ui_x
-        self.accumulator_y = self.accumulator_y + ui_y
-        ui_x = ui_x if ui_x < MAX_INTEGRAL_PART else MAX_INTEGRAL_PART
-        ui_y = ui_y if ui_y < MAX_INTEGRAL_PART else MAX_INTEGRAL_PART
-
-        u_x = up_x + ui_x
-        u_y = up_y + ui_y
-
-        # correction frame referentiel et saturation
-        x, y = _correct_for_referential_frame(u_x, u_y, position_command.player.pose.orientation)
-        x = x if x < MAX_NAIVE_CMD else MAX_NAIVE_CMD
-        x = x if x > MIN_NAIVE_CMD else MIN_NAIVE_CMD
-        y = y if y < MAX_NAIVE_CMD else MAX_NAIVE_CMD
-        y = y if y > MIN_NAIVE_CMD else MIN_NAIVE_CMD
-
-        # correction de theta
-        e_theta = 0 - position_command.player.pose.orientation
-        theta = self.ktheta * e_theta
-        theta = theta if theta < MAX_THETA_CMD else MAX_THETA_CMD
-        theta = theta if theta > MIN_THETA_CMD else MIN_THETA_CMD
-
-        cmd = Pose(Position(x, y), theta)
-        if position_command.stop_cmd:
-            cmd = Pose(Position(0, 0))
-
-        return cmd
