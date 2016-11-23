@@ -26,7 +26,7 @@ from .Util.constant import TeamColor
 
 LOCAL_UDP_MULTICAST_ADDRESS = "224.5.23.2"
 UI_DEBUG_MULTICAST_ADDRESS = "127.0.0.1"
-AI_DELTA_TIME = 0.180
+AI_DELTA_TIME = 0.0165 * 3 + 0.01
 
 GameState = namedtuple('GameState', ['field', 'referee', 'friends',
                                      'enemies', 'timestamp', 'debug'])
@@ -174,7 +174,8 @@ class Framework(object):
                 self.update_players_and_ball(current_vision_frame)
 
                 if self.timestamp - self.last_ai_iteration_timestamp > AI_DELTA_TIME:
-
+                    print("delta: {}".format(self.timestamp - self.last_ai_iteration_timestamp))
+                    self.last_ai_iteration_timestamp = self.timestamp
                     robot_commands, debug_commands = self.update_strategies()
                     self._send_robot_commands(robot_commands)
                     self._send_debug_commands(debug_commands)

@@ -11,11 +11,15 @@ from ..Util.Position import Position
 from ..Util.Pose import Pose
 
 
-DEFAULT_STATIC_GAIN = 0.115 / 1000
-DEFAULT_INTEGRAL_GAIN = 0.159 / 1000
-DEFAULT_DERIVATIVE_GAIN = 0.021 / 1000
-DEFAULT_THETA_GAIN = 0
-MAX_INTEGRAL_PART = 0.55
+DEFAULT_STATIC_GAIN = 0.049677
+DEFAULT_INTEGRAL_GAIN = 0.068426
+DEFAULT_DERIVATIVE_GAIN = 0.0090164
+DEFAULT_DERIVATIVE_GAIN = 0
+DEFAULT_THETA_GAIN = 0.9
+MAX_INTEGRAL_PART = 5
+MAX_NAIVE_CMD = math.sqrt(2)/2
+
+NBR_FILTER = 3
 
 
 class PID(object):
@@ -40,6 +44,12 @@ class PID(object):
     def update_pid_and_return_speed_command(self, position_command):
         """ Met à jour les composants du pid et retourne une commande en vitesse. """
         if position_command.stop_cmd:
+            self.last_error_x = 0
+            self.last_error_y = 0
+            self.last_command_x.append(0)
+            self.last_command_y.append(0)
+            self.accumulator_x = 0
+            self.accumulator_y = 0
             return Pose(Position(0, 0))
 
         r_x, r_y = position_command.pose.position.x, position_command.pose.position.y
@@ -73,7 +83,13 @@ class PID(object):
 
         # correction frame referentiel et saturation
         orientation = position_command.player.pose.orientation
-        pos_x, pos_y = _correct_for_referential_frame(u_x, u_y, orientation)
+        cmd_x, cmd_y = _correct_for_referential_frame(u_x, u_y, orientation)
+
+        # saturation
+        cmd_x = cmd_x if cmd_x < MAX_NAIVE_CMD else MAX_NAIVE_CMD
+        cmd_x = cmd_x if cmd_x > -MAX_NAIVE_CMD else -MAX_NAIVE_CMD
+        cmd_y = cmd_y if cmd_y < MAX_NAIVE_CMD else MAX_NAIVE_CMD
+        cmd_y = cmd_y if cmd_y > -MAX_NAIVE_CMD else -MAX_NAIVE_CMD
 
         # correction de theta
         e_theta = 0 - orientation
@@ -84,7 +100,15 @@ class PID(object):
         self.last_error_x = e_x
         self.last_error_y = e_y
 
-        cmd = Pose(Position(pos_x, pos_y), theta)
+        cmd_x = sum(self.last_command_x[-(NBR_FILTER-1):] + [cmd_x]) / NBR_FILTER
+        cmd_y = sum(self.last_command_y[-(NBR_FILTER-1):] + [cmd_y]) / NBR_FILTER
+
+        self.last_command_x.append(cmd_x)
+        self.last_command_y.append(cmd_y)
+
+        cmd = Pose(Position(cmd_x, cmd_y), theta)
+        if position_command.player.id == 0:
+            print("Commande: {}".format(cmd))
 
         return cmd
 
